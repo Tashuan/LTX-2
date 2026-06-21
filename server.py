@@ -120,15 +120,14 @@ def get_offload_mode(offload: str):
     mapping = {"none": OffloadMode.NONE, "cpu": OffloadMode.CPU, "disk": OffloadMode.DISK}
     return mapping.get(offload, OffloadMode.NONE)
 
-def get_quantization(quant: str):
+def get_quantization(quant: str, checkpoint_path: str | None = None):
     if quant == "none":
         return None
     from ltx_pipelines.utils.quantization_factory import QuantizationKind
-    from ltx_core.quantization import QuantizationPolicy
     kind = QuantizationKind(quant) if quant in ("fp8-cast", "fp8-scaled-mm") else None
     if kind is None:
         return None
-    return QuantizationPolicy(kind=kind)
+    return kind.to_policy(checkpoint_path)
 
 def get_default_params():
     from ltx_pipelines.utils.constants import detect_params
@@ -408,10 +407,10 @@ def generate(req: GenerateRequest):
 
     def run():
         offload = get_offload_mode(req.offload)
-        quant = get_quantization(req.quantization)
         images = _build_images(req.images)
 
         if req.pipeline == "distilled":
+            quant = get_quantization(req.quantization, str(DISTILLED_CHECKPOINT))
             from ltx_pipelines.distilled import DistilledPipeline
             pipe = get_pipeline("distilled", lambda: DistilledPipeline(
                 distilled_checkpoint_path=str(DISTILLED_CHECKPOINT),
@@ -428,6 +427,7 @@ def generate(req: GenerateRequest):
                 images=images, enhance_prompt=req.enhance_prompt,
             )
         elif req.pipeline == "one_stage":
+            quant = get_quantization(req.quantization, str(DEV_CHECKPOINT))
             from ltx_pipelines.ti2vid_one_stage import TI2VidOneStagePipeline
             pipe = get_pipeline("one_stage", lambda: TI2VidOneStagePipeline(
                 checkpoint_path=str(DEV_CHECKPOINT),
@@ -446,6 +446,7 @@ def generate(req: GenerateRequest):
                 images=images, enhance_prompt=req.enhance_prompt,
             )
         elif req.pipeline == "two_stage_hq":
+            quant = get_quantization(req.quantization, str(DEV_CHECKPOINT))
             from ltx_pipelines.ti2vid_two_stages_hq import TI2VidTwoStagesHQPipeline
             pipe = get_pipeline("two_stage_hq", lambda: TI2VidTwoStagesHQPipeline(
                 checkpoint_path=str(DEV_CHECKPOINT),
@@ -468,6 +469,7 @@ def generate(req: GenerateRequest):
                 images=images, enhance_prompt=req.enhance_prompt,
             )
         else:
+            quant = get_quantization(req.quantization, str(DEV_CHECKPOINT))
             from ltx_pipelines.ti2vid_two_stages import TI2VidTwoStagesPipeline
             pipe = get_pipeline("two_stage", lambda: TI2VidTwoStagesPipeline(
                 checkpoint_path=str(DEV_CHECKPOINT),
@@ -502,7 +504,7 @@ def generate_a2v(req: A2VRequest):
     def run():
         from ltx_pipelines.a2vid_two_stage import A2VidPipelineTwoStage
         offload = get_offload_mode(req.offload)
-        quant = get_quantization(req.quantization)
+        quant = get_quantization(req.quantization, str(DEV_CHECKPOINT))
         images = _build_images(req.images)
         audio_path = download_from_url(req.audio_url)
 
@@ -539,7 +541,7 @@ def generate_ic_lora(req: ICLoraRequest):
     def run():
         from ltx_pipelines.ic_lora import ICLoraPipeline
         offload = get_offload_mode(req.offload)
-        quant = get_quantization(req.quantization)
+        quant = get_quantization(req.quantization, str(DISTILLED_CHECKPOINT))
         images = _build_images(req.images)
         video_path = download_from_url(req.video_url)
         lora_path = IC_LORA_MODELS.get(req.ic_lora_type)
@@ -578,7 +580,7 @@ def generate_interpolate(req: InterpolationRequest):
     def run():
         from ltx_pipelines.keyframe_interpolation import KeyframeInterpolationPipeline
         offload = get_offload_mode(req.offload)
-        quant = get_quantization(req.quantization)
+        quant = get_quantization(req.quantization, str(DEV_CHECKPOINT))
         images = _build_images(req.images)
 
         pipe = get_pipeline("interpolation", lambda: KeyframeInterpolationPipeline(
@@ -613,7 +615,7 @@ def generate_retake(req: RetakeRequest):
     def run():
         from ltx_pipelines.retake import RetakePipeline
         offload = get_offload_mode(req.offload)
-        quant = get_quantization(req.quantization)
+        quant = get_quantization(req.quantization, str(DISTILLED_CHECKPOINT if req.distilled else DEV_CHECKPOINT))
         video_path = download_from_url(req.video_url)
 
         pipe = get_pipeline("retake", lambda: RetakePipeline(
@@ -648,7 +650,7 @@ def generate_lipdub(req: LipDubRequest):
     def run():
         from ltx_pipelines.lipdub import LipDubPipeline
         offload = get_offload_mode(req.offload)
-        quant = get_quantization(req.quantization)
+        quant = get_quantization(req.quantization, str(DISTILLED_CHECKPOINT))
         images = _build_images(req.images)
         ref_video = download_from_url(req.reference_video_url)
         lora_path = IC_LORA_MODELS["lipdub"]
@@ -685,7 +687,7 @@ def generate_camera(req: CameraRequest):
     def run():
         from ltx_pipelines.distilled import DistilledPipeline
         offload = get_offload_mode(req.offload)
-        quant = get_quantization(req.quantization)
+        quant = get_quantization(req.quantization, str(DISTILLED_CHECKPOINT))
         images = _build_images(req.images)
 
         camera_lora = CAMERA_LORA_DIR / f"ltx-2-19b-lora-camera-control-{req.camera_move}.safetensors"
@@ -719,7 +721,7 @@ def generate_hdr(req: HDRRequest):
     def run():
         from ltx_pipelines.hdr_ic_lora import HDRICLoraPipeline
         offload = get_offload_mode(req.offload)
-        quant = get_quantization(req.quantization)
+        quant = get_quantization(req.quantization, str(DISTILLED_CHECKPOINT))
         video_path = download_from_url(req.video_url)
 
         hdr_loras = list(HDR_LORA_DIR.glob("*.safetensors")) if HDR_LORA_DIR.exists() else []
@@ -762,7 +764,7 @@ def generate_t2a(req: T2ARequest):
     def run():
         from ltx_pipelines.t2a_one_stage import T2AOneStagePipeline
         offload = get_offload_mode(req.offload)
-        quant = get_quantization(req.quantization)
+        quant = get_quantization(req.quantization, str(DEV_CHECKPOINT))
 
         pipe = get_pipeline("t2a", lambda: T2AOneStagePipeline(
             checkpoint_path=str(DEV_CHECKPOINT),
