@@ -857,6 +857,7 @@ def warmup():
     import threading
     def _warmup():
         try:
+            import torch
             logger.info("Warming up two_stage pipeline (fp8-cast, cpu offload)…")
             params = get_default_params()
             offload = get_offload_mode("cpu")
@@ -871,17 +872,18 @@ def warmup():
                 quantization=quant,
                 offload_mode=offload,
             ))
-            video, audio = pipe(
-                prompt="warmup", negative_prompt="",
-                seed=1, height=512, width=512,
-                num_frames=9, frame_rate=24,
-                num_inference_steps=2,
-                video_guider_params=params.video_guider_params,
-                audio_guider_params=params.audio_guider_params,
-                images=[], enhance_prompt=False,
-            )
-            for _ in video:
-                pass
+            with torch.no_grad():
+                video, audio = pipe(
+                    prompt="warmup", negative_prompt="",
+                    seed=1, height=512, width=512,
+                    num_frames=9, frame_rate=24,
+                    num_inference_steps=2,
+                    video_guider_params=params.video_guider_params,
+                    audio_guider_params=params.audio_guider_params,
+                    images=[], enhance_prompt=False,
+                )
+                for _ in video:
+                    pass
             logger.info("Warmup complete — pipeline cached and ready")
         except Exception as e:
             logger.warning("Warmup failed (non-fatal): %s", e)
