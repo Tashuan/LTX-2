@@ -139,15 +139,18 @@ def save_video_output(video, audio, fps: int, job_id: str) -> str:
     tiling = TilingConfig.default()
     chunks = get_video_chunks_number(121, tiling)
     output_path = str(OUTPUT_DIR / f"{job_id}.mp4")
+    logger.info("[Job %s] Encoding video to %s", job_id, output_path)
     encode_video(
         video=video, fps=fps, audio=audio,
         output_path=output_path, video_chunks_number=chunks,
     )
+    logger.info("[Job %s] Video encoding complete", job_id)
     return output_path
 
 def save_audio_output(audio, job_id: str) -> str:
     from ltx_pipelines.utils.media_io import encode_audio
     output_path = str(OUTPUT_DIR / f"{job_id}.wav")
+    logger.info("[Job %s] Encoding audio to %s", job_id, output_path)
     encode_audio(audio=audio, output_path=output_path)
     return output_path
 
@@ -328,6 +331,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from time import time as _time
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        method = request.method
+        if method == "OPTIONS" or (method == "GET" and path.startswith("/jobs/")):
+            return await call_next(request)
+        start = _time()
+        logger.info("REQUEST %s %s from %s", method, path, request.client.host if request.client else "?")
+        if method == "POST":
+            try:
+                body = await request.body()
+                if body:
+                    logger.info("REQUEST BODY: %s", body.decode("utf-8", errors="replace")[:2000])
+            except Exception:
+                pass
+        response = await call_next(request)
+        elapsed = _time() - start
+        logger.info("RESPONSE %s %s -> %d (%.2fs)", method, path, response.status_code, elapsed)
+        return response
+
+app.add_middleware(RequestLoggingMiddleware)
+
 @app.get("/health")
 def health():
     import torch
@@ -373,8 +402,10 @@ def list_models():
 # ---------------------------------------------------------------------------
 def _run_job(job_id: str, fn):
     _jobs[job_id] = {"status": "running", "message": "Generating…", "created_at": str(uuid4())}
+    logger.info("[Job %s] Started", job_id)
     try:
         output_path, output_type, mime_type = fn()
+        logger.info("[Job %s] Inference complete, output: %s", job_id, output_path)
         firebase_url = upload_to_firebase(output_path, job_id)
         _jobs[job_id] = {
             "status": "completed",
@@ -384,8 +415,9 @@ def _run_job(job_id: str, fn):
             "output_type": output_type,
             "mime_type": mime_type,
         }
+        logger.info("[Job %s] Completed successfully", job_id)
     except Exception as e:
-        logger.exception("Job %s failed", job_id)
+        logger.exception("[Job %s] Failed: %s", job_id, e)
         _jobs[job_id] = {"status": "failed", "message": str(e), "output_path": None}
 
 def _build_images(images: list[ImageInput]) -> list:
@@ -404,13 +436,17 @@ def _build_images(images: list[ImageInput]) -> list:
 def generate(req: GenerateRequest):
     job_id = uuid4().hex
     params = get_default_params()
+    logger.info("[Job %s] /generate request: pipeline=%s prompt=%r seed=%s size=%dx%d frames=%d fps=%d quant=%s offload=%s",
+                job_id, req.pipeline, req.prompt[:100], req.seed, req.height, req.width, req.num_frames, req.frame_rate, req.quantization, req.offload)
 
     def run():
         offload = get_offload_mode(req.offload)
         images = _build_images(req.images)
+        logger.info("[Job %s] Pipeline=%s, offload=%s, images=%d", job_id, req.pipeline, req.offload, len(images))
 
         if req.pipeline == "distilled":
             quant = get_quantization(req.quantization, str(DISTILLED_CHECKPOINT))
+            logger.info("[Job %s] Loading distilled pipeline…", job_id)
             from ltx_pipelines.distilled import DistilledPipeline
             pipe = get_pipeline("distilled", lambda: DistilledPipeline(
                 distilled_checkpoint_path=str(DISTILLED_CHECKPOINT),
@@ -428,6 +464,7 @@ def generate(req: GenerateRequest):
             )
         elif req.pipeline == "one_stage":
             quant = get_quantization(req.quantization, str(DEV_CHECKPOINT))
+            logger.info("[Job %s] Loading one_stage pipeline…", job_id)
             from ltx_pipelines.ti2vid_one_stage import TI2VidOneStagePipeline
             pipe = get_pipeline("one_stage", lambda: TI2VidOneStagePipeline(
                 checkpoint_path=str(DEV_CHECKPOINT),
@@ -447,6 +484,7 @@ def generate(req: GenerateRequest):
             )
         elif req.pipeline == "two_stage_hq":
             quant = get_quantization(req.quantization, str(DEV_CHECKPOINT))
+            logger.info("[Job %s] Loading two_stage_hq pipeline…", job_id)
             from ltx_pipelines.ti2vid_two_stages_hq import TI2VidTwoStagesHQPipeline
             pipe = get_pipeline("two_stage_hq", lambda: TI2VidTwoStagesHQPipeline(
                 checkpoint_path=str(DEV_CHECKPOINT),
@@ -470,6 +508,7 @@ def generate(req: GenerateRequest):
             )
         else:
             quant = get_quantization(req.quantization, str(DEV_CHECKPOINT))
+            logger.info("[Job %s] Loading two_stage pipeline…", job_id)
             from ltx_pipelines.ti2vid_two_stages import TI2VidTwoStagesPipeline
             pipe = get_pipeline("two_stage", lambda: TI2VidTwoStagesPipeline(
                 checkpoint_path=str(DEV_CHECKPOINT),

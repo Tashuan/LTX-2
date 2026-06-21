@@ -3,6 +3,8 @@ from collections.abc import Iterator
 
 import torch
 
+logger = logging.getLogger(__name__)
+
 from ltx_core.components.guiders import (
     MultiModalGuiderFactory,
     MultiModalGuiderParams,
@@ -118,6 +120,7 @@ class TI2VidOneStagePipeline:
         sigmas: torch.Tensor | None = None,
     ) -> tuple[Iterator[torch.Tensor], Audio]:
         assert_resolution(height=height, width=width, is_two_stage=False)
+        logger.info("One-stage pipeline started: %dx%d %d frames @ %.1f fps, %d steps", width, height, num_frames, frame_rate, num_inference_steps)
 
         generator = torch.Generator(device=self.device).manual_seed(seed)
         noiser = GaussianNoiser(generator=generator)
@@ -179,8 +182,10 @@ class TI2VidOneStagePipeline:
             max_batch_size=max_batch_size,
         )
 
+        logger.info("Denoising complete, decoding video and audio")
         decoded_video = self.video_decoder(video_state.latent, tiling_config, generator=generator)
         decoded_audio = self.audio_decoder(audio_state.latent)
+        logger.info("Decoding complete")
         return decoded_video, decoded_audio
 
 

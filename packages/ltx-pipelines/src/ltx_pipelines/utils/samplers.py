@@ -66,6 +66,7 @@ def euler_denoising_loop(
         Final ``(video_state, audio_state)`` after the denoising loop.
     """
     for step_idx, _ in enumerate(tqdm(sigmas[:-1])):
+        logger.info("Denoising step %d/%d", step_idx + 1, len(sigmas) - 1)
         video_result, audio_result = denoiser(transformer, video_state, audio_state, sigmas, step_idx)
         denoised_video = video_result.denoised if video_result is not None else None
         denoised_audio = audio_result.denoised if audio_result is not None else None
@@ -112,6 +113,7 @@ def gradient_estimating_euler_denoising_loop(
         return current_velocity, denoised_sample
 
     for step_idx, _ in enumerate(tqdm(sigmas[:-1])):
+        logger.info("GE denoising step %d/%d", step_idx + 1, len(sigmas) - 1)
         video_result, audio_result = denoiser(transformer, video_state, audio_state, sigmas, step_idx)
         denoised_video = video_result.denoised if video_result is not None else None
         denoised_audio = audio_result.denoised if audio_result is not None else None
@@ -277,6 +279,7 @@ def res2s_audio_video_denoising_loop(  # noqa: PLR0913,PLR0915,PLR0912
     c2 = 0.5  # Midpoint for res_2s
 
     for step_idx in tqdm(range(n_full_steps)):
+        logger.info("Res2S denoising step %d/%d", step_idx + 1, n_full_steps)
         sigma = sigmas[step_idx].double()
         sigma_next = sigmas[step_idx + 1].double()
 
@@ -494,6 +497,7 @@ def euler_cfg_pp_denoising_loop(  # noqa: PLR0912
     draw_noise = stepper.eta > 0 and stepper.s_noise > 0
 
     for step_idx, _ in enumerate(tqdm(sigmas[:-1])):
+        logger.info("CFG++ denoising step %d/%d", step_idx + 1, len(sigmas) - 1)
         video_result, audio_result = denoiser(transformer, video_state, audio_state, sigmas, step_idx)
         denoised_video = video_result.denoised if video_result is not None else None
         denoised_audio = audio_result.denoised if audio_result is not None else None

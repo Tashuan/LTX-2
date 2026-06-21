@@ -3,6 +3,8 @@ from collections.abc import Iterator
 
 import torch
 
+logger = logging.getLogger(__name__)
+
 from ltx_core.components.diffusion_steps import Res2sDiffusionStep
 from ltx_core.components.guiders import MultiModalGuider, MultiModalGuiderParams
 from ltx_core.components.noisers import GaussianNoiser
@@ -131,6 +133,7 @@ class TI2VidTwoStagesHQPipeline:
         stage_2_sigmas: torch.Tensor = STAGE_2_DISTILLED_SIGMAS,
     ) -> tuple[Iterator[torch.Tensor], Audio]:
         assert_resolution(height=height, width=width, is_two_stage=True)
+        logger.info("Two-stage HQ pipeline started: %dx%d %d frames @ %.1f fps, %d steps", width, height, num_frames, frame_rate, num_inference_steps)
 
         generator = torch.Generator(device=self.device).manual_seed(seed)
         noiser = GaussianNoiser(generator=generator)
@@ -146,6 +149,7 @@ class TI2VidTwoStagesHQPipeline:
         v_context_n, a_context_n = ctx_n.video_encoding, ctx_n.audio_encoding
 
         # Stage 1: Generate video at half resolution with CFG guidance using res2s sampler.
+        logger.info("Stage 1: generating at %dx%d with res2s sampler", width // 2, height // 2)
         stage_1_output_shape = VideoPixelShape(
             batch=1,
             frames=num_frames,
@@ -198,6 +202,7 @@ class TI2VidTwoStagesHQPipeline:
         )
 
         # Stage 2: Upsample and refine the video at higher resolution with distilled LoRA.
+        logger.info("Stage 2: upsampling to %dx%d", width, height)
         upscaled_video_latent = self.upsampler(video_state.latent[:1])
 
         stage_2_sigmas = stage_2_sigmas.to(dtype=torch.float32, device=self.device)
@@ -236,8 +241,10 @@ class TI2VidTwoStagesHQPipeline:
             loop=res2s_audio_video_denoising_loop,
         )
 
+        logger.info("Stage 2 complete, decoding video and audio")
         decoded_video = self.video_decoder(video_state.latent, tiling_config, generator)
         decoded_audio = self.audio_decoder(audio_state.latent)
+        logger.info("Decoding complete")
         return decoded_video, decoded_audio
 
 

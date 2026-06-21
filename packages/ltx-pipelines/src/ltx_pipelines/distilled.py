@@ -3,6 +3,8 @@ from collections.abc import Iterator
 
 import torch
 
+logger = logging.getLogger(__name__)
+
 from ltx_core.components.noisers import GaussianNoiser
 from ltx_core.loader import LoraPathStrengthAndSDOps
 from ltx_core.loader.registry import Registry
@@ -100,6 +102,7 @@ class DistilledPipeline:
         stage_2_sigmas: torch.Tensor = STAGE_2_DISTILLED_SIGMAS,
     ) -> tuple[Iterator[torch.Tensor], Audio]:
         assert_resolution(height=height, width=width, is_two_stage=True)
+        logger.info("Distilled pipeline started: %dx%d %d frames @ %.1f fps", width, height, num_frames, frame_rate)
 
         generator = torch.Generator(device=self.device).manual_seed(seed)
         noiser = GaussianNoiser(generator=generator)
@@ -113,6 +116,7 @@ class DistilledPipeline:
         video_context, audio_context = ctx_p.video_encoding, ctx_p.audio_encoding
 
         # Stage 1: Initial low resolution video generation.
+        logger.info("Stage 1: generating at %dx%d", width // 2, height // 2)
         stage_1_sigmas = stage_1_sigmas.to(dtype=torch.float32, device=self.device)
         stage_1_w, stage_1_h = width // 2, height // 2
         stage_1_conditionings = self.image_conditioner(
@@ -139,6 +143,7 @@ class DistilledPipeline:
         )
 
         # Stage 2: Upsample and refine the video at higher resolution with distilled LORA.
+        logger.info("Stage 2: upsampling to %dx%d", width, height)
         upscaled_video_latent = self.upsampler(video_state.latent[:1])
 
         stage_2_sigmas = stage_2_sigmas.to(dtype=torch.float32, device=self.device)
@@ -174,8 +179,10 @@ class DistilledPipeline:
             ),
         )
 
+        logger.info("Stage 2 complete, decoding video and audio")
         decoded_video = self.video_decoder(video_state.latent, tiling_config, generator)
         decoded_audio = self.audio_decoder(audio_state.latent)
+        logger.info("Decoding complete")
         return decoded_video, decoded_audio
 
 

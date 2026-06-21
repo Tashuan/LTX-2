@@ -120,6 +120,7 @@ class TI2VidTwoStagesPipeline:
         stage_2_sigmas: torch.Tensor = STAGE_2_DISTILLED_SIGMAS,
     ) -> tuple[Iterator[torch.Tensor], Audio]:
         assert_resolution(height=height, width=width, is_two_stage=True)
+        logger.info("Two-stage pipeline started: %dx%d %d frames @ %.1f fps, %d steps", width, height, num_frames, frame_rate, num_inference_steps)
 
         generator = torch.Generator(device=self.device).manual_seed(seed)
         noiser = GaussianNoiser(generator=generator)
@@ -135,6 +136,7 @@ class TI2VidTwoStagesPipeline:
         v_context_n, a_context_n = ctx_n.video_encoding, ctx_n.audio_encoding
 
         # Stage 1: Generate video at half resolution with CFG guidance.
+        logger.info("Stage 1: generating at %dx%d with CFG guidance", width // 2, height // 2)
         stage_1_output_shape = VideoPixelShape(
             batch=1,
             frames=num_frames,
@@ -180,8 +182,10 @@ class TI2VidTwoStagesPipeline:
             audio=ModalitySpec(context=a_context_p),
             max_batch_size=max_batch_size,
         )
+        logger.info("Stage 1 complete")
 
         # Stage 2: Upsample and refine the video at higher resolution with distilled LoRA.
+        logger.info("Stage 2: upsampling to %dx%d with distilled LoRA", width, height)
         upscaled_video_latent = self.upsampler(video_state.latent[:1])
 
         stage_2_sigmas = stage_2_sigmas.to(dtype=torch.float32, device=self.device)
@@ -217,8 +221,10 @@ class TI2VidTwoStagesPipeline:
             ),
         )
 
+        logger.info("Stage 2 complete, decoding video and audio")
         decoded_video = self.video_decoder(video_state.latent, tiling_config, generator)
         decoded_audio = self.audio_decoder(audio_state.latent)
+        logger.info("Decoding complete")
         return decoded_video, decoded_audio
 
 
