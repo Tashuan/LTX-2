@@ -851,3 +851,38 @@ def download(job_id: str):
     if not output_path or not os.path.exists(output_path):
         raise HTTPException(status_code=404, detail="Output file not found")
     return FileResponse(output_path, media_type=job.get("mime_type", "video/mp4"))
+
+@app.on_event("startup")
+def warmup():
+    import threading
+    def _warmup():
+        try:
+            logger.info("Warming up two_stage pipeline (fp8-cast, cpu offload)…")
+            params = get_default_params()
+            offload = get_offload_mode("cpu")
+            quant = get_quantization("fp8-cast", str(DEV_CHECKPOINT))
+            from ltx_pipelines.ti2vid_two_stages import TI2VidTwoStagesPipeline
+            pipe = get_pipeline("two_stage", lambda: TI2VidTwoStagesPipeline(
+                checkpoint_path=str(DEV_CHECKPOINT),
+                distilled_lora=[lora(DISTILLED_LORA, 0.8)],
+                spatial_upsampler_path=str(SPATIAL_UPSCALER),
+                gemma_root=str(GEMMA_ROOT),
+                loras=[],
+                quantization=quant,
+                offload_mode=offload,
+            ))
+            video, audio = pipe(
+                prompt="warmup", negative_prompt="",
+                seed=1, height=512, width=512,
+                num_frames=9, frame_rate=24,
+                num_inference_steps=2,
+                video_guider_params=params.video_guider_params,
+                audio_guider_params=params.audio_guider_params,
+                images=[], enhance_prompt=False,
+            )
+            for _ in video:
+                pass
+            logger.info("Warmup complete — pipeline cached and ready")
+        except Exception as e:
+            logger.warning("Warmup failed (non-fatal): %s", e)
+    threading.Thread(target=_warmup, daemon=True).start()

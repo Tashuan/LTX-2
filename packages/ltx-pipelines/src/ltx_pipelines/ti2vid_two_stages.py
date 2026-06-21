@@ -3,6 +3,8 @@ from collections.abc import Iterator
 
 import torch
 
+logger = logging.getLogger(__name__)
+
 from ltx_core.components.guiders import (
     MultiModalGuiderFactory,
     MultiModalGuiderParams,
