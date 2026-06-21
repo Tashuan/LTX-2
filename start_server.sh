@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-cd ~/LTX-2
+cd "$HOME/LTX-2"
 source .venv/bin/activate
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
